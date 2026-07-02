@@ -904,7 +904,7 @@ function clearErrors() {
 
 // ==================== 详情弹窗 ====================
 function viewDetail(key) {
-  const b = bookingsCache[key]; if (!b) return;
+  const b = bookingsCache[key]; if (!b) { showToast('⚠️ 未找到预约数据: '+key, 'error'); return; }
   detailKey = key;
   const parts = key.split('_'); const room = parts[0]; const dateParts = parts[1].split('-').map(Number); const slot = parts[2];
 
@@ -1093,7 +1093,7 @@ function renderTodayPanel() {
     if (r.reportReader) tags.push('<span class="tag-person role-report">📋解读：' + esc(r.reportReader) + '</span>');
     var sub = tags.length > 0 ? '<div class="today-row-sub">' + tags.join('') + '</div>' : '';
 
-    html += `<div class="today-row" onclick="viewDetail('${r.key}')">
+    html += `<div class="today-row" style="cursor:pointer;" onclick="viewDetail('${r.key}')">
       <div class="today-row-main">
         <span class="tr-room">${ROOM_ICONS[r.room]} ${r.room === 'r3' ? '3F' : r.room === 'r5' ? '5F' : '6F'}</span>
         <span class="tr-slot ${r.slot === 'am' ? 'am' : 'pm'}">${r.slot === 'am' ? '上午' : '下午'}</span>
