@@ -146,6 +146,9 @@
   .day-cell.other-month .date-num { color: #c0c7cf; }
   .day-cell.today { background: #fffdf5; }
   .day-cell.today .date-num { background: var(--primary); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
+  .day-cell.weekend { background: #f8f8fb; }
+  .day-cell.past { opacity: 0.55; }
+  .day-cell.past .slot { pointer-events: none !important; }
   .date-num { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 1px; }
   .day-cell:nth-child(7n) .date-num,.day-cell:nth-child(7n-6) .date-num { color: var(--danger); }
 
@@ -318,9 +321,10 @@
 
   <!-- 房间选项卡 -->
   <div class="room-tabs" id="roomTabs">
-    <div class="room-tab active" data-room="r3" onclick="switchRoom('r3')">🏠 3楼会议室<span class="tab-count" id="countR3">0场</span></div>
-    <div class="room-tab" data-room="r5" onclick="switchRoom('r5')">🏢 5楼会议室<span class="tab-count" id="countR5">0场</span></div>
-    <div class="room-tab" data-room="r6" onclick="switchRoom('r6')">🏬 6楼会议室<span class="tab-count" id="countR6">0场</span></div>
+    <div class="room-tab active" data-room="r3" onclick="switchRoom('r3')">🏠 3楼<span class="tab-count" id="countR3">0场</span></div>
+    <div class="room-tab" data-room="r5" onclick="switchRoom('r5')">🏢 5楼<span class="tab-count" id="countR5">0场</span></div>
+    <div class="room-tab" data-room="r6" onclick="switchRoom('r6')">🏬 6楼<span class="tab-count" id="countR6">0场</span></div>
+    <div class="room-tab" data-room="all" onclick="switchRoom('all')" style="border-color:#27ae60;">📋 全部<span class="tab-count" id="countAll">0场</span></div>
   </div>
 
   <div class="status-bar connecting" id="statusBar">
@@ -343,7 +347,7 @@
       <span class="stats" id="stats">本月预约：<strong>0</strong> 场</span>
       <button class="btn-sm" onclick="goToday()">📅 今天</button>
       <button class="btn-sm" onclick="openSettings()">⚙️ 设置</button>
-      <button class="btn-sm" onclick="exportCSV()" style="border-color:#27ae60;color:#27ae60;">📥 导出</button>
+      <button class="btn-sm" onclick="openExport()" style="border-color:#27ae60;color:#27ae60;">📥 导出</button>
       <button class="btn-sm danger" onclick="clearAll()">🗑 清空</button>
     </div>
   </div>
@@ -380,11 +384,12 @@
     </div>
     <div class="form-group">
       <label>会议室 <span class="required">*</span></label>
-      <select id="bookingRoom">
+      <select id="bookingRoom" onchange="checkRoomConflict()">
         <option value="r3">3楼会议室</option>
         <option value="r5">5楼会议室</option>
         <option value="r6">6楼会议室</option>
       </select>
+      <div class="error-msg" id="errRoomConflict" style="color:#e74c3c;font-weight:600;"></div>
     </div>
     <div class="form-group">
       <label>公司名称 <span class="required">*</span></label>
@@ -470,6 +475,22 @@
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closePostMeeting()">取消</button>
       <button class="btn btn-primary" onclick="savePostMeeting()">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 导出弹窗 -->
+<div class="modal-overlay" id="exportOverlay" style="display:none;">
+  <div class="modal">
+    <h3>📥 导出预约数据</h3>
+    <div class="form-row">
+      <div class="form-group"><label>开始月份</label><input type="month" id="exportStart"></div>
+      <div class="form-group"><label>结束月份</label><input type="month" id="exportEnd"></div>
+    </div>
+    <p style="font-size:11px;color:var(--text-light);margin-bottom:8px;">💡 默认为当前月份，可跨月导出。导出格式为 CSV，Excel 可直接打开。</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeExport()">取消</button>
+      <button class="btn btn-primary" onclick="doExport()">📥 导出 CSV</button>
     </div>
   </div>
 </div>
@@ -597,6 +618,8 @@ function switchRoom(room) {
   currentRoom = room;
   document.querySelectorAll('.room-tab').forEach(function(t) { t.classList.toggle('active', t.dataset.room === room); });
   renderCalendar();
+  // 全部视图不需要显示单个房间的 today panel
+  document.getElementById('todayPanel').style.display = room === 'all' ? 'none' : '';
 }
 function updateRoomCounts() {
   const prefix = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
@@ -607,6 +630,7 @@ function updateRoomCounts() {
     }
   }
   for (const r in counts) { document.getElementById('count' + r.toUpperCase()).textContent = counts[r] + '场'; }
+  document.getElementById('countAll').textContent = (counts.r3 + counts.r5 + counts.r6) + '场';
   document.getElementById('stats').innerHTML = '本月预约：<strong>' + (counts.r3 + counts.r5 + counts.r6) + '</strong> 场';
 }
 
@@ -641,17 +665,56 @@ function renderCalendar() {
   renderTodayPanel();
 }
 
+function isPastDate(y, m, d) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const check = new Date(y, m-1, d); check.setHours(0,0,0,0);
+  return check < today;
+}
+
 function buildCell(day, y, m, isOther, isToday, bookings) {
   const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const dow = new Date(y, m-1, day).getDay();
+  let cls = 'day-cell'; if (isOther) cls += ' other-month'; if (isToday) cls += ' today';
+  if (dow === 0 || dow === 6) cls += ' weekend';
+  if (!isOther && isPastDate(y, m, day)) cls += ' past';
+  const oc = isOther ? ' outside-month' : '';
+
+  if (currentRoom === 'all') {
+    // 全部视图：显示三个会议室
+    let slotHtml = '';
+    const rooms = ['r3','r5','r6'];
+    const times = [{slot:'am',label:'上午',cls:'morning'},{slot:'pm',label:'下午',cls:'afternoon'}];
+    rooms.forEach(function(room) {
+      times.forEach(function(t) {
+        const key = getBookingKey(room, y, m, day, t.slot);
+        const b = bookings[key];
+        if (b) {
+          slotHtml += `<div class="slot ${t.cls} booked${oc}" onclick="viewDetail('${key}')" style="font-size:9px;gap:2px;">
+            <span class="badge-room">${ROOM_ICONS[room]}${room==='r3'?'3F':room==='r5'?'5F':'6F'}</span>
+            <span class="slot-label">${t.label}</span>
+            <span class="slot-info"><strong>${esc(b.companyName)}</strong></span>
+            <span class="badge-people">${b.peopleCount}人</span>
+          </div>`;
+        } else {
+          slotHtml += `<div class="slot ${t.cls} available${oc}" onclick="openBookingAll('${dateStr}','${t.slot}','${room}')" style="font-size:9px;gap:2px;">
+            <span class="badge-room">${ROOM_ICONS[room]}${room==='r3'?'3F':room==='r5'?'5F':'6F'}</span>
+            <span class="slot-label">${t.label}</span>
+            <span class="slot-info">点击预约</span>
+          </div>`;
+        }
+      });
+    });
+    return `<div class="${cls}" style="min-height:120px;"><span class="date-num">${day}</span>${slotHtml}</div>`;
+  }
+
+  // 单房间视图
   const keyAM = getBookingKey(currentRoom, y, m, day, 'am');
   const keyPM = getBookingKey(currentRoom, y, m, day, 'pm');
   const bAM = bookings[keyAM], bPM = bookings[keyPM];
-  let cls = 'day-cell'; if (isOther) cls += ' other-month'; if (isToday) cls += ' today';
-  const oc = isOther ? ' outside-month' : '';
   return `<div class="${cls}"><span class="date-num">${day}</span>
-    ${bAM ? `<div class="slot morning booked${oc}" onclick="viewDetail('${keyAM}')"><span class="slot-label">上午</span><span class="slot-info"><strong>${esc(bAM.companyName)}</strong></span><span class="badge-people">${bAM.peopleCount}人</span><button class="btn-delete" onclick="event.stopPropagation();deleteBooking('${keyAM}')">✕</button></div>`
+    ${bAM ? `<div class="slot morning booked${oc}" onclick="viewDetail('${keyAM}')"><span class="slot-label">🔴 上午</span><span class="slot-info"><strong>${esc(bAM.companyName)}</strong></span><span class="badge-people">${bAM.peopleCount}人</span><button class="btn-delete" onclick="event.stopPropagation();deleteBooking('${keyAM}')">✕</button></div>`
     : `<div class="slot morning available${oc}" onclick="openBooking('${dateStr}','am')"><span class="slot-label">上午</span><span class="slot-info">点击预约</span></div>`}
-    ${bPM ? `<div class="slot afternoon booked${oc}" onclick="viewDetail('${keyPM}')"><span class="slot-label">下午</span><span class="slot-info"><strong>${esc(bPM.companyName)}</strong></span><span class="badge-people">${bPM.peopleCount}人</span><button class="btn-delete" onclick="event.stopPropagation();deleteBooking('${keyPM}')">✕</button></div>`
+    ${bPM ? `<div class="slot afternoon booked${oc}" onclick="viewDetail('${keyPM}')"><span class="slot-label">🔴 下午</span><span class="slot-info"><strong>${esc(bPM.companyName)}</strong></span><span class="badge-people">${bPM.peopleCount}人</span><button class="btn-delete" onclick="event.stopPropagation();deleteBooking('${keyPM}')">✕</button></div>`
     : `<div class="slot afternoon available${oc}" onclick="openBooking('${dateStr}','pm')"><span class="slot-label">下午</span><span class="slot-info">点击预约</span></div>`}
   </div>`;
 }
@@ -667,6 +730,16 @@ function changeMonth(d) {
 function goToday() { const n = new Date(); currentYear = n.getFullYear(); currentMonth = n.getMonth() + 1; renderCalendar(); updateRoomCounts(); }
 
 // ==================== 预约弹窗 ====================
+function openBookingAll(dateStr, slot, room) {
+  currentRoom = 'all'; // 保持全部视图
+  const [, y, m, d] = dateStr.match(/^(\d+)-(\d+)-(\d+)$/).map(Number);
+  const key = getBookingKey(room, y, m, d, slot);
+  if (bookingsCache[key]) { viewDetail(key); return; }
+  // 预选指定房间
+  document.getElementById('bookingRoom').value = room;
+  openBooking(dateStr, slot);
+}
+
 function openBooking(dateStr, slot) {
   const [, y, m, d] = dateStr.match(/^(\d+)-(\d+)-(\d+)$/).map(Number);
   const key = getBookingKey(currentRoom, y, m, d, slot);
@@ -691,6 +764,20 @@ function openBooking(dateStr, slot) {
   setTimeout(function() { document.getElementById('companyName').focus(); }, 150);
 }
 function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; clearErrors(); resetSaveBtn(); }
+function checkRoomConflict() {
+  const room = document.getElementById('bookingRoom').value;
+  const oldKey = document.getElementById('editKey').value;
+  // 构建目标 key
+  const parts = oldKey.split('_'); parts[0] = room; const targetKey = parts.join('_');
+  const errEl = document.getElementById('errRoomConflict');
+  if (targetKey !== oldKey && bookingsCache[targetKey]) {
+    errEl.textContent = '⚠️ 该会议室此时段已被「' + bookingsCache[targetKey].companyName + '」预约！';
+    errEl.classList.add('show');
+  } else {
+    errEl.textContent = '';
+    errEl.classList.remove('show');
+  }
+}
 function resetSaveBtn() { const b = document.getElementById('saveBtn'); b.textContent = '✅ 确认预约'; b.className = 'btn btn-primary'; b.disabled = false; }
 
 function saveBooking() {
@@ -728,6 +815,13 @@ function saveBooking() {
     ctaPeople: old.ctaPeople || '', petmrPeople: old.petmrPeople || '', reviewNote: old.reviewNote || '',
     bookedAt: old.bookedAt || new Date().toISOString()
   };
+
+  // 检查目标时段是否已被占用（修改时排除自己）
+  if (newKey !== oldKey && bookingsCache[newKey]) {
+    showToast('⚠️ 该会议室此时段已被「' + bookingsCache[newKey].companyName + '」预约！', 'error');
+    btn.textContent = '✅ 确认预约'; btn.className = 'btn btn-primary'; btn.disabled = false;
+    return;
+  }
 
   // 如果换了房间，先删旧再存新
   if (newKey !== oldKey) { deleteFromDb(oldKey); }
@@ -928,13 +1022,24 @@ function toggleToday() {
 }
 
 // ==================== 导出 CSV ====================
-function exportCSV() {
-  const monthPrefix = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
+function openExport() {
+  const ym = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
+  document.getElementById('exportStart').value = ym;
+  document.getElementById('exportEnd').value = ym;
+  document.getElementById('exportOverlay').style.display = 'flex';
+}
+function closeExport() { document.getElementById('exportOverlay').style.display = 'none'; }
+
+function doExport() {
+  const start = document.getElementById('exportStart').value;
+  const end = document.getElementById('exportEnd').value;
+  if (!start || !end) { showToast('请选择起止月份', 'error'); return; }
+
   const rows = [];
   for (const key in bookingsCache) {
-    if (key.indexOf(monthPrefix) !== -1) {
-      const parts = key.split('_'); const room = parts[0]; const date = parts[1]; const slot = parts[2];
-      const b = bookingsCache[key];
+    const parts = key.split('_'); const date = parts[1];
+    if (date >= start + '-01' && date <= end + '-31') {
+      const room = parts[0]; const slot = parts[2]; const b = bookingsCache[key];
       rows.push({
         date, room: ROOMS[room] || room,
         slot: slot === 'am' ? settingsCache.amLabel : settingsCache.pmLabel,
@@ -946,10 +1051,9 @@ function exportCSV() {
       });
     }
   }
-  if (rows.length === 0) { showToast('本月暂无预约数据', 'info'); return; }
+  if (rows.length === 0) { showToast('所选范围暂无预约数据', 'info'); return; }
   rows.sort(function(a, b) { return a.date.localeCompare(b.date) || a.slot.localeCompare(b.slot); });
 
-  // 生成 CSV with BOM for Excel
   const headers = ['日期', '会议室', '时段', '公司名称', '预计人数', 'CT人数', '会销保障', '主讲', '接待', '报告解读', '实际到会', '项目人数', 'CTA项目', 'PETMR人数', '复盘备注'];
   let csv = '﻿' + headers.join(',') + '\n';
   rows.forEach(function(r) {
@@ -960,9 +1064,11 @@ function exportCSV() {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url;
-  a.download = `会议室预约_${currentYear}年${currentMonth}月.csv`;
+  const range = start === end ? start : start + '至' + end;
+  a.download = '会议室预约_' + range + '.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  closeExport();
   showToast('✅ 导出成功！' + rows.length + ' 条记录', 'success');
 }
 
@@ -977,6 +1083,7 @@ document.addEventListener('keydown', function(e) {
     if (document.getElementById('modalOverlay').style.display === 'flex') closeModal();
     else if (document.getElementById('detailOverlay').style.display === 'flex') closeDetail();
     else if (document.getElementById('postMeetingOverlay').style.display === 'flex') closePostMeeting();
+    else if (document.getElementById('exportOverlay').style.display === 'flex') closeExport();
     else if (document.getElementById('settingsOverlay').style.display === 'flex') closeSettings();
   }
   if (document.getElementById('lockOverlay').classList.contains('hidden') &&
@@ -992,6 +1099,7 @@ document.getElementById('modalOverlay').addEventListener('click', function(e) { 
 document.getElementById('detailOverlay').addEventListener('click', function(e) { if (e.target === this) closeDetail(); });
 document.getElementById('postMeetingOverlay').addEventListener('click', function(e) { if (e.target === this) closePostMeeting(); });
 document.getElementById('settingsOverlay').addEventListener('click', function(e) { if (e.target === this) closeSettings(); });
+document.getElementById('exportOverlay').addEventListener('click', function(e) { if (e.target === this) closeExport(); });
 
 // ==================== 启动 ====================
 initDate(); renderCalendar();
