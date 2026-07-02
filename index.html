@@ -113,24 +113,39 @@
   }
   .today-panel .panel-body { padding: 4px 8px; max-height: 400px; overflow-y: auto; }
   .today-row {
-    display: grid; grid-template-columns: 50px 60px 1fr 55px 50px; gap: 4px;
-    align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--border);
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
     font-size: 12px; cursor: pointer; transition: background 0.15s;
   }
   .today-row:hover { background: var(--primary-light); }
+  .today-row-main {
+    display: grid; grid-template-columns: 50px 60px 1fr 55px 50px; gap: 4px;
+    align-items: center;
+  }
   .today-row .tr-room { font-weight: 700; font-size: 11px; color: var(--primary); }
   .today-row .tr-slot { font-size: 10px; padding: 1px 4px; border-radius: 3px; color: #fff; font-weight: 700; text-align: center; }
   .today-row .tr-slot.am { background: var(--morning); }
   .today-row .tr-slot.pm { background: var(--afternoon); }
   .today-row .tr-company { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .today-row .tr-people { text-align: right; color: var(--text-light); font-size: 11px; }
+  .today-row-sub {
+    margin-top: 2px; display: flex; gap: 4px; flex-wrap: wrap;
+    font-size: 10px; color: var(--text-light);
+  }
+  .today-row-sub .tag-person { background: #e8f2fb; color: #1a6dcc; padding: 1px 6px; border-radius: 10px; white-space: nowrap; font-size: 10px; }
+  .today-row-sub .tag-person.role-guarantee { background: #fef7f0; color: #f0a04b; }
+  .today-row-sub .tag-person.role-speaker { background: #e8f8e8; color: #27ae60; }
+  .today-row-sub .tag-person.role-reception { background: #f0f6fc; color: #5b9bd5; }
+  .today-row-sub .tag-person.role-report { background: #f5f0fa; color: #8e6fc4; }
   .today-empty { text-align: center; padding: 20px; color: #c0c7cf; font-size: 13px; }
 
   @media (max-width: 420px) {
-    .today-row { grid-template-columns: 40px 45px 1fr 40px 35px; font-size: 10px; gap: 2px; padding: 4px; }
+    .today-row-main { grid-template-columns: 40px 45px 1fr 40px 35px; gap: 2px; }
+    .today-row { padding: 4px; }
     .today-row .tr-room { font-size: 9px; }
     .today-row .tr-slot { font-size: 8px; }
     .today-row .tr-people { font-size: 9px; }
+    .today-row-sub { font-size: 8px; }
+    .today-row-sub .tag-person { font-size: 8px; padding: 1px 4px; }
     .today-panel .panel-header { font-size: 12px; padding: 8px 12px; }
   }
   .weekdays { display: grid; grid-template-columns: repeat(7,1fr); background: #f0f4f8; border-bottom: 1px solid var(--border); }
@@ -301,19 +316,20 @@
 <body>
 
 <!-- 🔐 密码锁屏 -->
-<div class="lock-overlay" id="lockOverlay">
+<div class="lock-overlay hidden" id="lockOverlay">
   <div class="lock-card">
     <div class="lock-icon">🔐</div>
     <h2>全景机构部 · 会议室预约</h2>
     <div class="lock-sub">请输入访问密码</div>
     <input type="password" id="lockPassword" placeholder="请输入密码" maxlength="20" autocomplete="off">
+    <input type="text" id="lockName" placeholder="请输入您的姓名（必填）" maxlength="10" autocomplete="off" style="margin-top:10px;letter-spacing:2px;">
     <div class="lock-error" id="lockError"></div>
-    <div class="lock-hint">仅供内部使用</div>
+    <div class="lock-hint">仅供内部使用 · 所有操作将记录您的姓名</div>
   </div>
 </div>
 
 <!-- 主界面 -->
-<div id="mainApp" style="display:none;">
+<div id="mainApp">
   <div class="header">
     <h1>🏢 全景机构部 · 会议室预约</h1>
     <div class="subtitle" id="headerSub">多人共享 · 实时同步</div>
@@ -345,6 +361,7 @@
     </div>
     <div class="toolbar-right">
       <span class="stats" id="stats">本月预约：<strong>0</strong> 场</span>
+      <button class="btn-sm" id="adminBtn" onclick="toggleAdmin()" style="border-color:#f0a04b;color:#f0a04b;">🔒 管理员登录</button>
       <button class="btn-sm" onclick="goToday()">📅 今天</button>
       <button class="btn-sm" onclick="openSettings()">⚙️ 设置</button>
       <button class="btn-sm" onclick="openExport()" style="border-color:#27ae60;color:#27ae60;">📥 导出</button>
@@ -433,6 +450,7 @@
     </div>
     <div class="detail-grid">
       <div class="detail-item full-width"><div class="detail-label">公司名称</div><div class="detail-value" id="detailCompany"></div></div>
+      <div class="detail-item"><div class="detail-label">预约人</div><div class="detail-value" id="detailOperator"></div></div>
       <div class="detail-item"><div class="detail-label">预计人数</div><div class="detail-value" id="detailPeople"></div></div>
       <div class="detail-item"><div class="detail-label">CT人数</div><div class="detail-value" id="detailCtCount"></div></div>
       <div class="detail-item"><div class="detail-label">会销保障人员</div><div class="detail-value" id="detailSupport"></div></div>
@@ -533,24 +551,52 @@ let currentYear, currentMonth, currentRoom = 'r3', detailKey = null;
 // ==================== 密码 ====================
 function checkLogin() {
   if (sessionStorage.getItem('meeting_logged_in') === 'true') {
-    document.getElementById('lockOverlay').classList.add('hidden');
-    document.getElementById('mainApp').style.display = '';
+    currentUser = sessionStorage.getItem('meeting_user') || '';
+    isAdmin = true;
+    document.getElementById('adminBtn').textContent = '👤 ' + currentUser + '（退出）';
+    document.getElementById('adminBtn').style.cssText = 'border-color:#27ae60;color:#27ae60;';
     return true;
   }
   return false;
 }
 
+let currentUser = '';
+let isAdmin = false;
+
+function toggleAdmin() {
+  if (isAdmin) {
+    // 退出管理员
+    if (!confirm('确定退出管理员模式吗？')) return;
+    isAdmin = false; currentUser = '';
+    sessionStorage.removeItem('meeting_logged_in');
+    sessionStorage.removeItem('meeting_user');
+    document.getElementById('adminBtn').textContent = '🔒 管理员登录';
+    document.getElementById('adminBtn').style.cssText = 'border-color:#f0a04b;color:#f0a04b;';
+    showToast('已退出管理员模式，现在是只读浏览', 'info');
+    renderCalendar();
+  } else {
+    document.getElementById('lockOverlay').classList.remove('hidden');
+    document.getElementById('lockPassword').focus();
+  }
+}
+
 function doLogin() {
-  const input = document.getElementById('lockPassword').value.trim();
+  const pw = document.getElementById('lockPassword').value.trim();
+  const name = document.getElementById('lockName').value.trim();
   const err = document.getElementById('lockError');
-  if (!input) { err.textContent = '请输入密码'; return; }
-  if (input !== settingsCache.password) { err.textContent = '❌ 密码错误'; document.getElementById('lockPassword').value = ''; return; }
+  if (!pw) { err.textContent = '请输入密码'; return; }
+  if (pw !== settingsCache.password) { err.textContent = '❌ 密码错误'; document.getElementById('lockPassword').value = ''; return; }
+  if (!name) { err.textContent = '请输入您的姓名'; return; }
   err.textContent = '';
+  currentUser = name;
+  isAdmin = true;
   sessionStorage.setItem('meeting_logged_in', 'true');
+  sessionStorage.setItem('meeting_user', name);
   document.getElementById('lockOverlay').classList.add('hidden');
-  document.getElementById('mainApp').style.display = '';
-  if (!db) initFirebase();
-  if (Object.keys(bookingsCache).length > 0) { renderCalendar(); updateRoomCounts(); }
+  document.getElementById('adminBtn').textContent = '👤 ' + name + '（退出）';
+  document.getElementById('adminBtn').style.cssText = 'border-color:#27ae60;color:#27ae60;';
+  showToast('✅ 管理员登录成功！', 'success');
+  renderCalendar();
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -609,6 +655,12 @@ function saveToDb(key, data) {
 }
 function deleteFromDb(key) {
   if (!db || !dbReady) { showToast('⚠️ 数据库未连接', 'error'); return; }
+  // 记录删除日志
+  const b = bookingsCache[key];
+  if (b) {
+    const log = Object.assign({}, b, { canceledBy: currentUser, canceledAt: new Date().toISOString() });
+    firebase.database().ref('logs/' + key).set(log);
+  }
   firebase.database().ref('bookings/' + key).remove(function(err) { if (err) showToast('❌ 删除失败', 'error'); });
 }
 
@@ -661,6 +713,10 @@ function renderCalendar() {
   const nm = currentMonth === 12 ? 1 : currentMonth + 1, ny = currentMonth === 12 ? currentYear + 1 : currentYear;
   for (let d = 1; d <= remaining; d++) { html += buildCell(d, ny, nm, true, false, bookings); }
   grid.innerHTML = html;
+  // 非管理员隐藏删除按钮
+  if (!isAdmin) {
+    grid.querySelectorAll('.btn-delete').forEach(function(b) { b.style.display = 'none'; });
+  }
   renderTodayPanel();
 }
 
@@ -729,17 +785,23 @@ function changeMonth(d) {
 function goToday() { const n = new Date(); currentYear = n.getFullYear(); currentMonth = n.getMonth() + 1; renderCalendar(); updateRoomCounts(); }
 
 // ==================== 预约弹窗 ====================
+function requireAdmin() {
+  if (!isAdmin) { showToast('🔒 需要管理员登录才能操作！请点击「管理员登录」', 'error'); return false; }
+  return true;
+}
+
 function openBookingAll(dateStr, slot, room) {
-  currentRoom = 'all'; // 保持全部视图
+  if (!requireAdmin()) return;
+  currentRoom = 'all';
   const [, y, m, d] = dateStr.match(/^(\d+)-(\d+)-(\d+)$/).map(Number);
   const key = getBookingKey(room, y, m, d, slot);
   if (bookingsCache[key]) { viewDetail(key); return; }
-  // 预选指定房间
   document.getElementById('bookingRoom').value = room;
   openBooking(dateStr, slot);
 }
 
 function openBooking(dateStr, slot) {
+  if (!requireAdmin()) return;
   const [, y, m, d] = dateStr.match(/^(\d+)-(\d+)-(\d+)$/).map(Number);
   const key = getBookingKey(currentRoom, y, m, d, slot);
   if (bookingsCache[key]) { viewDetail(key); return; }
@@ -812,6 +874,7 @@ function saveBooking() {
     supportStaff, speaker, reception, reportReader,
     actualPeople: old.actualPeople || '', projectPeople: old.projectPeople || '',
     ctaPeople: old.ctaPeople || '', petmrPeople: old.petmrPeople || '', reviewNote: old.reviewNote || '',
+    operator: currentUser || old.operator || '',
     bookedAt: old.bookedAt || new Date().toISOString()
   };
 
@@ -849,9 +912,19 @@ function viewDetail(key) {
   setDetail('detailCompany', b.companyName, false);
   setDetail('detailPeople', b.peopleCount + ' 人', false);
   setDetail('detailCtCount', (b.ctCount || b.ctCount === 0) ? b.ctCount + ' 人' : null, true);
+  // 显示预约人
+  var opEl = document.getElementById('detailOperator');
+  if (b.operator) { opEl.textContent = b.operator; opEl.classList.remove('empty'); }
+  else { opEl.textContent = '（未知）'; opEl.classList.add('empty'); }
   [{id:'detailSupport',v:b.supportStaff},{id:'detailSpeaker',v:b.speaker},{id:'detailReception',v:b.reception},{id:'detailReport',v:b.reportReader}].forEach(function(f) { setDetail(f.id, f.v, true); });
   [{id:'detailActualPeople',v:b.actualPeople},{id:'detailProjectPeople',v:b.projectPeople},{id:'detailCtaPeople',v:b.ctaPeople},{id:'detailPetmrPeople',v:b.petmrPeople}].forEach(function(f) { setDetail(f.id, (f.v||f.v===0) ? f.v+' 人' : null, true); });
   setDetail('detailReviewNote', b.reviewNote, true);
+
+  // 非管理员隐藏操作按钮
+  document.getElementById('detailDeleteBtn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('detailEditBtn').style.display = isAdmin ? '' : 'none';
+  var pmBtn = document.querySelector('#detailOverlay .btn-warning');
+  if (pmBtn) pmBtn.style.display = isAdmin ? '' : 'none';
 
   document.getElementById('detailOverlay').style.display = 'flex';
 }
@@ -863,6 +936,7 @@ function setDetail(id, val, emptyOk) {
 function closeDetail() { document.getElementById('detailOverlay').style.display = 'none'; detailKey = null; }
 
 function editFromDetail() {
+  if (!requireAdmin()) return;
   if (!detailKey) return;
   const b = bookingsCache[detailKey]; if (!b) return;
   const parts = detailKey.split('_'); const room = parts[0]; const dateParts = parts[1].split('-').map(Number); const slot = parts[2];
@@ -888,6 +962,7 @@ function editFromDetail() {
 }
 
 function deleteFromDetail() {
+  if (!requireAdmin()) return;
   if (!detailKey) return; const b = bookingsCache[detailKey]; if (!b) return;
   if (!confirm('确定要取消「' + b.companyName + '」的预约吗？\n\n此操作不可恢复。')) return;
   deleteFromDb(detailKey);
@@ -896,6 +971,7 @@ function deleteFromDetail() {
 }
 
 function deleteBooking(key) {
+  if (!requireAdmin()) return;
   const b = bookingsCache[key]; if (!b) return;
   if (!confirm('确定要取消「' + b.companyName + '」的预约吗？\n\n此操作不可恢复。')) return;
   deleteFromDb(key); showToast('🗑 预约已取消', 'info');
@@ -903,6 +979,7 @@ function deleteBooking(key) {
 
 // ==================== 会后数据 ====================
 function openPostMeeting() {
+  if (!requireAdmin()) return;
   if (!detailKey) return; const b = bookingsCache[detailKey]; if (!b) return;
   const parts = detailKey.split('_'); const room = parts[0]; const dateParts = parts[1].split('-').map(Number); const slot = parts[2];
   document.getElementById('pmDateText').textContent = `${dateParts[0]}年${dateParts[1]}月${dateParts[2]}日`;
@@ -938,6 +1015,7 @@ function savePostMeeting() {
 
 // ==================== 设置 ====================
 function openSettings() {
+  if (!requireAdmin()) return;
   document.getElementById('setPassword').value = settingsCache.password || '';
   document.getElementById('setTitle').value = settingsCache.title || '';
   document.getElementById('setAmLabel').value = settingsCache.amLabel || '';
@@ -1003,12 +1081,23 @@ function renderTodayPanel() {
 
   let html = '';
   rows.forEach(function(r) {
+    // 人员标签
+    var tags = [];
+    if (r.speaker) tags.push('<span class="tag-person role-speaker">🎤主讲：' + esc(r.speaker) + '</span>');
+    if (r.supportStaff) tags.push('<span class="tag-person role-guarantee">🛡保障：' + esc(r.supportStaff) + '</span>');
+    if (r.reception) tags.push('<span class="tag-person role-reception">🤝接待：' + esc(r.reception) + '</span>');
+    if (r.reportReader) tags.push('<span class="tag-person role-report">📋解读：' + esc(r.reportReader) + '</span>');
+    var sub = tags.length > 0 ? '<div class="today-row-sub">' + tags.join('') + '</div>' : '';
+
     html += `<div class="today-row" onclick="viewDetail('${r.key}')">
-      <span class="tr-room">${ROOM_ICONS[r.room]} ${r.room === 'r3' ? '3F' : r.room === 'r5' ? '5F' : '6F'}</span>
-      <span class="tr-slot ${r.slot === 'am' ? 'am' : 'pm'}">${r.slot === 'am' ? '上午' : '下午'}</span>
-      <span class="tr-company">${esc(r.companyName)}</span>
-      <span class="tr-people">👥 ${r.peopleCount}</span>
-      <span class="tr-people">CT ${r.ctCount||0}</span>
+      <div class="today-row-main">
+        <span class="tr-room">${ROOM_ICONS[r.room]} ${r.room === 'r3' ? '3F' : r.room === 'r5' ? '5F' : '6F'}</span>
+        <span class="tr-slot ${r.slot === 'am' ? 'am' : 'pm'}">${r.slot === 'am' ? '上午' : '下午'}</span>
+        <span class="tr-company">${esc(r.companyName)}</span>
+        <span class="tr-people">👥 ${r.peopleCount}</span>
+        <span class="tr-people">CT ${r.ctCount||0}</span>
+      </div>
+      ${sub}
     </div>`;
   });
   body.innerHTML = html;
@@ -1046,18 +1135,20 @@ function doExport() {
         support: b.supportStaff || '', speaker: b.speaker || '',
         reception: b.reception || '', report: b.reportReader || '',
         actual: b.actualPeople || '', project: b.projectPeople || '',
-        cta: b.ctaPeople || '', petmr: b.petmrPeople || '', note: b.reviewNote || ''
+        cta: b.ctaPeople || '', petmr: b.petmrPeople || '', note: b.reviewNote || '',
+        operator: b.operator || '', canceledBy: b.canceledBy || ''
       });
     }
   }
   if (rows.length === 0) { showToast('所选范围暂无预约数据', 'info'); return; }
   rows.sort(function(a, b) { return a.date.localeCompare(b.date) || a.slot.localeCompare(b.slot); });
 
-  const headers = ['日期', '会议室', '时段', '公司名称', '预计人数', 'CT人数', '会销保障', '主讲', '接待', '报告解读', '实际到会', '项目人数', 'CTA项目', 'PETMR人数', '复盘备注'];
+  const headers = ['日期', '会议室', '时段', '公司名称', '预计人数', 'CT人数', '会销保障', '主讲', '接待', '报告解读', '实际到会', '项目人数', 'CTA项目', 'PETMR人数', '复盘备注', '预约人', '取消人'];
   let csv = '﻿' + headers.join(',') + '\n';
   rows.forEach(function(r) {
     csv += [r.date, r.room, r.slot, csvCell(r.company), r.people, r.ct, csvCell(r.support), csvCell(r.speaker),
-      csvCell(r.reception), csvCell(r.report), r.actual, r.project, r.cta, r.petmr, csvCell(r.note)].join(',') + '\n';
+      csvCell(r.reception), csvCell(r.report), r.actual, r.project, r.cta, r.petmr, csvCell(r.note),
+      csvCell(r.operator), csvCell(r.canceledBy)].join(',') + '\n';
   });
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -1102,7 +1193,8 @@ document.getElementById('exportOverlay').addEventListener('click', function(e) {
 
 // ==================== 启动 ====================
 initDate(); renderCalendar();
-if (checkLogin()) { initFirebase(); }
+checkLogin(); // 恢复管理员状态（如果有）
+initFirebase(); // 所有人直接连接数据库查看
 </script>
 </body>
 </html>
