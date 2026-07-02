@@ -270,8 +270,11 @@
     .date-num { font-size: 9px; }
     .slot { padding: 1px; min-height: 16px; flex-wrap: wrap; }
     .slot-label { font-size: 6px; padding: 0 2px; }
-    .slot-info { font-size: 7px; display: none; white-space: normal; word-break: break-all; }
-    .slot.booked .slot-info { display: block; }
+    .slot-info { font-size: 7px; display: none; }
+    .slot.booked .slot-info { display: block; font-size: 9px; }
+    .slot.booked .badge-people { display: none; }
+    .slot.booked .badge-room { display: none; }
+    .slot.booked .slot-label { font-size: 7px; }
     .slot .badge-room { font-size: 7px; }
     .slot .badge-people { font-size: 6px; padding: 0 2px; }
     .modal { width: 96%; padding: 12px; max-width: none; border-radius: 12px 12px 0 0; max-height: 90vh; }
