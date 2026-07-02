@@ -101,6 +101,38 @@
 
   /* 日历 */
   .calendar-wrap { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+
+  /* 当天预约 */
+  .today-panel {
+    background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow);
+    margin-top: 10px; overflow: hidden;
+  }
+  .today-panel .panel-header {
+    background: #1a3a5c; color: #fff; padding: 10px 16px; font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+  }
+  .today-panel .panel-body { padding: 4px 8px; max-height: 400px; overflow-y: auto; }
+  .today-row {
+    display: grid; grid-template-columns: 50px 60px 1fr 55px 50px; gap: 4px;
+    align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--border);
+    font-size: 12px; cursor: pointer; transition: background 0.15s;
+  }
+  .today-row:hover { background: var(--primary-light); }
+  .today-row .tr-room { font-weight: 700; font-size: 11px; color: var(--primary); }
+  .today-row .tr-slot { font-size: 10px; padding: 1px 4px; border-radius: 3px; color: #fff; font-weight: 700; text-align: center; }
+  .today-row .tr-slot.am { background: var(--morning); }
+  .today-row .tr-slot.pm { background: var(--afternoon); }
+  .today-row .tr-company { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .today-row .tr-people { text-align: right; color: var(--text-light); font-size: 11px; }
+  .today-empty { text-align: center; padding: 20px; color: #c0c7cf; font-size: 13px; }
+
+  @media (max-width: 420px) {
+    .today-row { grid-template-columns: 40px 45px 1fr 40px 35px; font-size: 10px; gap: 2px; padding: 4px; }
+    .today-row .tr-room { font-size: 9px; }
+    .today-row .tr-slot { font-size: 8px; }
+    .today-row .tr-people { font-size: 9px; }
+    .today-panel .panel-header { font-size: 12px; padding: 8px 12px; }
+  }
   .weekdays { display: grid; grid-template-columns: repeat(7,1fr); background: #f0f4f8; border-bottom: 1px solid var(--border); }
   .weekdays div { padding: 10px 4px; text-align: center; font-size: 12px; font-weight: 700; color: var(--text-light); }
   .weekdays div:first-child,.weekdays div:last-child { color: var(--danger); }
@@ -311,6 +343,7 @@
       <span class="stats" id="stats">本月预约：<strong>0</strong> 场</span>
       <button class="btn-sm" onclick="goToday()">📅 今天</button>
       <button class="btn-sm" onclick="openSettings()">⚙️ 设置</button>
+      <button class="btn-sm" onclick="exportCSV()" style="border-color:#27ae60;color:#27ae60;">📥 导出</button>
       <button class="btn-sm danger" onclick="clearAll()">🗑 清空</button>
     </div>
   </div>
@@ -324,6 +357,15 @@
   <div class="calendar-wrap">
     <div class="weekdays"><div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div></div>
     <div class="calendar-grid" id="calendarGrid"></div>
+  </div>
+
+  <!-- 当天预约 -->
+  <div class="today-panel" id="todayPanel">
+    <div class="panel-header" onclick="toggleToday()">
+      📋 <span id="todayTitle">今日预约</span>
+      <span style="font-size:11px;opacity:0.8;" id="todayCount">0 场</span>
+    </div>
+    <div class="panel-body" id="todayBody"></div>
   </div>
 </div>
 
@@ -596,6 +638,7 @@ function renderCalendar() {
   const nm = currentMonth === 12 ? 1 : currentMonth + 1, ny = currentMonth === 12 ? currentYear + 1 : currentYear;
   for (let d = 1; d <= remaining; d++) { html += buildCell(d, ny, nm, true, false, bookings); }
   grid.innerHTML = html;
+  renderTodayPanel();
 }
 
 function buildCell(day, y, m, isOther, isToday, bookings) {
@@ -837,6 +880,95 @@ function clearAll() {
   firebase.database().ref('bookings').update(updates, function(err) {
     if (err) showToast('❌ 清空失败', 'error'); else showToast('✅ 已清空', 'success');
   });
+}
+
+// ==================== 当天预约面板 ====================
+function renderTodayPanel() {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  document.getElementById('todayTitle').textContent = '今日预约（' + todayStr + '）';
+
+  const rows = [];
+  for (const key in bookingsCache) {
+    if (key.indexOf(todayStr) !== -1) {
+      const parts = key.split('_'); const room = parts[0]; const slot = parts[2];
+      const b = bookingsCache[key];
+      rows.push({ key, room, slot, ...b });
+    }
+  }
+  // 排序：先按房间，再按时段
+  const roomOrder = { r3: 0, r5: 1, r6: 2 };
+  rows.sort(function(a, b) { return (roomOrder[a.room] - roomOrder[b.room]) || a.slot.localeCompare(b.slot); });
+
+  document.getElementById('todayCount').textContent = rows.length + ' 场';
+
+  const body = document.getElementById('todayBody');
+  if (rows.length === 0) {
+    body.innerHTML = '<div class="today-empty">📭 今天暂无预约，点击日历预约吧</div>';
+    return;
+  }
+
+  let html = '';
+  rows.forEach(function(r) {
+    html += `<div class="today-row" onclick="viewDetail('${r.key}')">
+      <span class="tr-room">${ROOM_ICONS[r.room]} ${r.room === 'r3' ? '3F' : r.room === 'r5' ? '5F' : '6F'}</span>
+      <span class="tr-slot ${r.slot === 'am' ? 'am' : 'pm'}">${r.slot === 'am' ? '上午' : '下午'}</span>
+      <span class="tr-company">${esc(r.companyName)}</span>
+      <span class="tr-people">👥 ${r.peopleCount}</span>
+      <span class="tr-people">CT ${r.ctCount||0}</span>
+    </div>`;
+  });
+  body.innerHTML = html;
+}
+
+let todayCollapsed = false;
+function toggleToday() {
+  todayCollapsed = !todayCollapsed;
+  document.getElementById('todayBody').style.display = todayCollapsed ? 'none' : '';
+}
+
+// ==================== 导出 CSV ====================
+function exportCSV() {
+  const monthPrefix = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
+  const rows = [];
+  for (const key in bookingsCache) {
+    if (key.indexOf(monthPrefix) !== -1) {
+      const parts = key.split('_'); const room = parts[0]; const date = parts[1]; const slot = parts[2];
+      const b = bookingsCache[key];
+      rows.push({
+        date, room: ROOMS[room] || room,
+        slot: slot === 'am' ? settingsCache.amLabel : settingsCache.pmLabel,
+        company: b.companyName, people: b.peopleCount, ct: b.ctCount || 0,
+        support: b.supportStaff || '', speaker: b.speaker || '',
+        reception: b.reception || '', report: b.reportReader || '',
+        actual: b.actualPeople || '', project: b.projectPeople || '',
+        cta: b.ctaPeople || '', petmr: b.petmrPeople || '', note: b.reviewNote || ''
+      });
+    }
+  }
+  if (rows.length === 0) { showToast('本月暂无预约数据', 'info'); return; }
+  rows.sort(function(a, b) { return a.date.localeCompare(b.date) || a.slot.localeCompare(b.slot); });
+
+  // 生成 CSV with BOM for Excel
+  const headers = ['日期', '会议室', '时段', '公司名称', '预计人数', 'CT人数', '会销保障', '主讲', '接待', '报告解读', '实际到会', '项目人数', 'CTA项目', 'PETMR人数', '复盘备注'];
+  let csv = '﻿' + headers.join(',') + '\n';
+  rows.forEach(function(r) {
+    csv += [r.date, r.room, r.slot, csvCell(r.company), r.people, r.ct, csvCell(r.support), csvCell(r.speaker),
+      csvCell(r.reception), csvCell(r.report), r.actual, r.project, r.cta, r.petmr, csvCell(r.note)].join(',') + '\n';
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = `会议室预约_${currentYear}年${currentMonth}月.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅ 导出成功！' + rows.length + ' 条记录', 'success');
+}
+
+function csvCell(val) {
+  if (!val) return '';
+  return '"' + String(val).replace(/"/g, '""') + '"';
 }
 
 // ==================== 键盘 ====================
